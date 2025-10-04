@@ -2,13 +2,20 @@ package request
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"unicode"
 )
 
+const (
+	stateInitialized = iota
+	stateDone
+)
+
 type Request struct {
 	RequestLine RequestLine
+	state       int
 }
 
 type RequestLine struct {
@@ -25,33 +32,64 @@ var (
 )
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
-	data, err := io.ReadAll(reader)
-
-	if err != nil {
-		return nil, err
+	buff := make([]byte, 8)
+	readToIndex := 0
+	req := Request{
+		state: stateInitialized,
 	}
 
-	requestStr := string(data)
-	requestParts := strings.SplitN(requestStr, "\r\n", 2)
+	for req.state != stateDone {
+		// if the buffere is full
+		if readToIndex == len(buff) {
+			newBuff := make([]byte, 2*len(buff))
+			copy(newBuff, buff)
+			buff = newBuff
+		}
+		// read more data into buffer
+		numOfBytesRead, err := reader.Read(buff[readToIndex:])
 
-	reqLine, err := parseRequestLine(requestParts[0])
+		if err != nil {
+			// there is nothing left to read
+			if err == io.EOF {
+				if req.state != stateDone {
+					return nil, fmt.Errorf("incomplete request")
+				}
+				break
+			}
 
-	if err != nil {
-		return nil, err
+			return nil, err
+		}
+
+		readToIndex += numOfBytesRead
+
+		numOfBytesParsed, err := req.parse(buff[:readToIndex])
+
+		if err != nil {
+			return nil, err
+		}
+
+		if numOfBytesParsed > 0 {
+			copy(buff, buff[numOfBytesParsed:readToIndex])
+			readToIndex -= numOfBytesParsed
+		}
+
 	}
 
-	request := &Request{
-		RequestLine: *reqLine,
-	}
-
-	return request, nil
+	return &req, nil
 }
 
-func parseRequestLine(requestLine string) (*RequestLine, error) {
-	parts := strings.Split(requestLine, " ")
+func parseRequestLine(data []byte) (*RequestLine, int, error) {
+	dataStr := string(data)
+	index := strings.Index(dataStr, "\r\n")
+	if index == -1 {
+		return nil, 0, nil
+	}
+
+	line := dataStr[:index]
+	parts := strings.Split(line, " ")
 
 	if len(parts) != 3 {
-		return nil, ErrInvalidRequestline
+		return nil, 0, ErrInvalidRequestline
 	}
 
 	method := parts[0]
@@ -60,19 +98,40 @@ func parseRequestLine(requestLine string) (*RequestLine, error) {
 
 	for _, r := range method {
 		if !unicode.IsUpper(r) {
-			return nil, ErrInvalidHttpMethod
+			return nil, 0, ErrInvalidHttpMethod
 		}
 	}
 
 	if version != "HTTP/1.1" {
-		return nil, ErrInvalidHttpVersion
+		return nil, 0, ErrInvalidHttpVersion
 	}
 
 	if !strings.HasPrefix(target, "/") {
-		return nil, ErrInvalidTarget
+		return nil, 0, ErrInvalidTarget
 	}
 
 	versionNumber := version[5:]
 
-	return &RequestLine{Method: method, RequestTarget: target, HttpVersion: versionNumber}, nil
+	return &RequestLine{Method: method, RequestTarget: target, HttpVersion: versionNumber}, index + 2, nil
+}
+
+func (r *Request) parse(data []byte) (int, error) {
+	if r.state == stateDone {
+		// nothing left to parse
+		return 0, nil
+	}
+	r.state = stateInitialized
+	reqLine, consumed, err := parseRequestLine(data)
+
+	if err != nil {
+		return 0, err
+	}
+
+	if consumed > 0 {
+		r.RequestLine = *reqLine
+		r.state = stateDone
+		return consumed, nil
+	}
+
+	return consumed, nil
 }
