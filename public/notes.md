@@ -14,3 +14,28 @@ When to stop reading.
 You pull data from the file.
 
 When you read from a network connection, the data is pushed to you by the remote server. You don't have control over when the data arrives, how much arrives, or when it stops arriving. Your code has to be ready to receive it when it comes.
+
+### Headers
+
+We've got the request line, now it's time to parse the request headers.
+
+Now, when we say "headers" it's important to note that the RFC doesn't call them that.... The RFC uses the term field-line, but it's basically the same thing. From 5. Field Syntax
+
+Each field line consists of a case-insensitive field name followed by a colon (":"), optional leading whitespace, the field line value, and optional trailing whitespace.
+
+```
+    field-line   = field-name ":" OWS field-value OWS
+```
+
+One important point to note: there can be an unlimited amount of whitespace before and after the field-value (Header value). However, when parsing a field-name, there must be no spaces betwixt the colon and the field-name. In other words, these are valid:
+
+```
+'Host: localhost:42069'
+'          Host: localhost:42069    '
+```
+
+But this is not:
+
+```
+Host : localhost:42069
+```
