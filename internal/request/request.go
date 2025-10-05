@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -13,12 +14,14 @@ import (
 const (
 	requestStateParsingRequestLine = iota
 	requestStateParsingHeaders
+	requestStateParsingBody
 	requestStateDone
 )
 
 type Request struct {
 	RequestLine RequestLine
 	Headers     header.Headers
+	Body        []byte
 	state       int
 }
 
@@ -91,7 +94,7 @@ func parseRequestLine(data []byte) (*RequestLine, int, error) {
 	}
 
 	line := dataStr[:index]
-	parts := strings.Split(line, " ")
+	parts := strings.SplitN(line, " ", 3)
 
 	if len(parts) != 3 {
 		return nil, 0, ErrInvalidRequestline
@@ -107,15 +110,18 @@ func parseRequestLine(data []byte) (*RequestLine, int, error) {
 		}
 	}
 
-	if version != "HTTP/1.1" {
-		return nil, 0, ErrInvalidHttpVersion
+	if !strings.HasPrefix(version, "HTTP/") {
+		return nil, 0, fmt.Errorf("invalid version prefix")
+	}
+
+	versionNumber := strings.TrimPrefix(version, "HTTP/")
+	if versionNumber != "1.1" && versionNumber != "1.0" {
+		return nil, 0, fmt.Errorf("unsupported HTTP version: %s", versionNumber)
 	}
 
 	if !strings.HasPrefix(target, "/") {
 		return nil, 0, ErrInvalidTarget
 	}
-
-	versionNumber := version[5:]
 
 	return &RequestLine{Method: method, RequestTarget: target, HttpVersion: versionNumber}, index + 2, nil
 }
@@ -163,13 +169,47 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 		}
 
 		if done {
-			r.state = requestStateDone
+			r.state = requestStateParsingBody
 		}
 
 		return n, nil
 
+	case requestStateParsingBody:
+		// if Content-Type header present then parse the body
+		contentLengthStr := r.Headers.Get("Content-Length")
+
+		if contentLengthStr == "" {
+			r.state = requestStateDone
+			return 0, nil
+		}
+
+		contentLength, err := strconv.Atoi(contentLengthStr)
+
+		if err != nil {
+			return 0, errors.New("invalid content length " + err.Error())
+		}
+
+		remaining := contentLength - len(r.Body)
+		if remaining <= 0 {
+			r.state = requestStateDone
+			return 0, nil
+		}
+
+		// Only take up to 'remaining' bytes from data
+		take := len(data)
+		if take > remaining {
+			return 0, fmt.Errorf("body longer than Content-Length")
+		}
+
+		r.Body = append(r.Body, data[:take]...)
+
+		if len(r.Body) == contentLength {
+			r.state = requestStateDone
+		}
+
+		return take, nil
 	default:
-		return 0, fmt.Errorf("invalid state %d\n", r.state)
+		return 0, fmt.Errorf("invalid state %d", r.state)
 	}
 
 }

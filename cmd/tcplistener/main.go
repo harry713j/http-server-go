@@ -43,6 +43,8 @@ func main() {
 			fmt.Printf("- %s: %s\n", key, value)
 		}
 
+		fmt.Printf("Body:\n %s\n", request.Body)
+
 		response := "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\n\r\nOK"
 		_, err = conn.Write([]byte(response))
 
