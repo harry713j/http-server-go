@@ -49,7 +49,12 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	}
 
 	key = strings.ToLower(key)
-	h[key] = value
+
+	if existingVal, ok := h[key]; !ok {
+		h[key] = value
+	} else {
+		h[key] = fmt.Sprintf("%s, %s", existingVal, value)
+	}
 
 	return crlfIndex + 2, false, nil
 }

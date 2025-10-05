@@ -37,8 +37,13 @@ func main() {
 
 		fmt.Printf("Request Line:\n- Method: %v\n- Target: %v\n- Version: %v\n",
 			request.RequestLine.Method, request.RequestLine.RequestTarget, request.RequestLine.HttpVersion)
+		fmt.Println("Headers:")
 
-		response := "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nContent-Type: text/plain\r\n\r\nOK"
+		for key, value := range request.Headers {
+			fmt.Printf("- %s: %s\n", key, value)
+		}
+
+		response := "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\n\r\nOK"
 		_, err = conn.Write([]byte(response))
 
 		if err != nil {

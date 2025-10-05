@@ -89,3 +89,21 @@ func TestInvalidCharacterInHeaderKey(t *testing.T) {
 	assert.Equal(t, 0, n)
 	assert.False(t, done)
 }
+
+// Test: "Duplicate header should append value"
+func TestDuplicateHeaderAppendsValue(t *testing.T) {
+	headers := NewHeaders()
+
+	// First header
+	n, done, err := headers.Parse([]byte("Accept: text/html\r\n"))
+	require.NoError(t, err)
+	assert.Equal(t, 19, n)
+	assert.False(t, done)
+
+	// Second header
+	n, done, err = headers.Parse([]byte("Accept: application/json\r\n\r\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "text/html, application/json", headers["accept"])
+	assert.Equal(t, 26, n)
+	assert.False(t, done)
+}
