@@ -1,29 +1,39 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"sync/atomic"
 
+	"github.com/harry713j/http-server/internal/request"
 	"github.com/harry713j/http-server/internal/response"
 )
 
 type Server struct {
 	listener net.Listener
 	closed   atomic.Bool // to prevent race condition
+	handler  Handler
 }
 
-func Serve(port int) (*Server, error) {
-	addr := fmt.Sprintf(":%d", port)
+type Handler func(w io.Writer, r *request.Request) *HandlerError
 
+type HandlerError struct {
+	StatusCode response.StatusCode
+	Message    string
+}
+
+func Serve(port int, handler Handler) (*Server, error) {
+	addr := fmt.Sprintf(":%d", port)
 	listener, err := net.Listen("tcp", addr)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on port %d: %v", port, err)
 	}
 
-	srv := &Server{listener: listener}
+	srv := &Server{listener: listener, handler: handler}
 
 	srv.listen()
 
@@ -58,8 +68,27 @@ func (s *Server) listen() {
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
 
+	// parse request
+	req, err := request.RequestFromReader(conn)
+
+	if err != nil {
+		hErr := &HandlerError{
+			StatusCode: response.StatusBadRequest,
+			Message:    err.Error(),
+		}
+		hErr.Write(conn)
+		return
+	}
+
+	buff := bytes.NewBuffer([]byte{})
+
+	if hErr := s.handler(buff, req); hErr != nil {
+		hErr.Write(conn)
+		return
+	}
+
 	status := response.StatusOk
-	responseBody := []byte("Hello World!")
+	responseBody := buff.Bytes()
 
 	if err := response.WriteStatusLine(conn, status); err != nil {
 		log.Printf("Error writing response line: %v\n", err)
@@ -78,4 +107,25 @@ func (s *Server) handle(conn net.Conn) {
 			return
 		}
 	}
+}
+
+func (h HandlerError) Write(w io.Writer) {
+	errRespBody := []byte(h.Message)
+	headers := response.GetDefaultHeaders(len(errRespBody))
+
+	if err := response.WriteStatusLine(w, h.StatusCode); err != nil {
+		log.Printf("Error writing response line: %v\n", err)
+		return
+	}
+
+	if err := response.WriteHeaders(w, headers); err != nil {
+		log.Printf("Error writing headers: %v\n", err)
+		return
+	}
+
+	if _, err := w.Write(errRespBody); err != nil {
+		log.Printf("Error writing error body: %v\n", err)
+		return
+	}
+
 }
