@@ -69,3 +69,7 @@ func (h Headers) Get(key string) string {
 
 	return ""
 }
+
+func (h Headers) Add(key, value string) {
+	h[key] = value
+}

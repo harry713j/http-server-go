@@ -16,21 +16,71 @@ const port = 42069
 
 func main() {
 	handler := func(w io.Writer, r *request.Request) *server.HandlerError {
+		respWriter := response.NewWriter(w)
+
+		var (
+			status response.StatusCode
+			body   string
+		)
+
 		switch r.RequestLine.RequestTarget {
 		case "/yourproblem":
-			return &server.HandlerError{
-				StatusCode: response.StatusBadRequest,
-				Message:    "Your problem is not my problem\n",
-			}
+			status = response.StatusBadRequest
+			body = `
+				<html>
+					<head>
+						<title>400 Bad Request</title>
+					</head>
+					<body>
+						<h1>Bad Request</h1>
+						<p>Your request honestly kinda sucked.</p>
+					</body>
+				</html>
+			`
 		case "/myproblem":
-			return &server.HandlerError{
-				StatusCode: response.StatusInternalServerError,
-				Message:    "Woopsie, my bad\n",
-			}
+			status = response.StatusInternalServerError
+			body = `
+				<html>
+					<head>
+						<title>500 Internal Server Error</title>
+					</head>
+					<body>
+						<h1>Internal Server Error</h1>
+						<p>Okay, you know what? This one is on me.</p>
+					</body>
+				</html>
+			`
 		default:
-			io.WriteString(w, "All good, frfr\n")
-			return nil
+			status = response.StatusOk
+			body = `
+				<html>
+					<head>
+						<title>200 OK</title>
+					</head>
+					<body>
+						<h1>Success!</h1>
+						<p>Your request was an absolute banger.</p>
+					</body>
+				</html>
+			`
 		}
+		// Write response
+		if err := respWriter.WriteStatusLine(status); err != nil {
+			return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
+		}
+
+		h := response.GetDefaultHeaders(len(body))
+		h.Add("Content-Type", "text/html")
+
+		if err := respWriter.WriteHeaders(h); err != nil {
+			return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
+		}
+
+		if _, err := respWriter.WriteBody([]byte(body)); err != nil {
+			return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
+		}
+
+		return nil
 	}
 
 	server, err := server.Serve(port, handler)
