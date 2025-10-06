@@ -39,3 +39,11 @@ But this is not:
 ```
 Host : localhost:42069
 ```
+
+#### _Other common Headers_
+
+few more noteworthy mentions that we won't care about for now are:
+
+`Content-Encoding`: Is the response content encoded/compressed? If so, then this should be included to tell the client how to decode it. (Remember, encoded != encrypted)
+`Date`: The date and time that the message was sent. This is useful for caching and other things.
+`Cache-Control`: Directives for caching mechanisms in both requests and responses. This is useful for telling the client or any intermediaries how to cache the response.
