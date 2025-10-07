@@ -41,7 +41,9 @@ func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
 func GetDefaultHeaders(contentLen int) header.Headers {
 	h := header.NewHeaders()
 
-	h["Content-Length"] = fmt.Sprintf("%d", contentLen)
+	if contentLen > 0 {
+		h["Content-Length"] = fmt.Sprintf("%d", contentLen)
+	}
 	h["Connection"] = "close"
 	h["Content-Type"] = "text/plain"
 

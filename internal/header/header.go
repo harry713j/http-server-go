@@ -73,3 +73,7 @@ func (h Headers) Get(key string) string {
 func (h Headers) Add(key, value string) {
 	h[key] = value
 }
+
+func (h Headers) Remove(key string) {
+	delete(h, key)
+}
