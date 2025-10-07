@@ -26,75 +26,12 @@ func main() {
 		respWriter := response.NewWriter(w)
 
 		if strings.HasPrefix(r.RequestLine.RequestTarget, "/httpbin/") {
-			proxyPath := strings.TrimPrefix(r.RequestLine.RequestTarget, "/httpbin")
-			proxyUrl := "https://httpbin.org" + proxyPath
+			err := proxy(r, respWriter)
+			return err
+		}
 
-			resp, err := http.Get(proxyUrl)
-
-			if err != nil {
-				return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
-			}
-
-			defer resp.Body.Close()
-
-			headers := response.GetDefaultHeaders(0)
-			headers.Add("Content-Type", resp.Header.Get("Content-Type"))
-			headers.Remove("content-length")
-			headers.Add("Transfer-Encoding", "chunked")
-
-			headers.Add("Trailer", "X-Content-SHA256, X-Content-Length")
-
-			if err := respWriter.WriteStatusLine(response.StatusOk); err != nil {
-				return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
-			}
-
-			if err := respWriter.WriteHeaders(headers); err != nil {
-				return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
-			}
-
-			buff := make([]byte, 1024)
-			var fullBody bytes.Buffer // to calculate hash and length later
-
-			for {
-				n, err := resp.Body.Read(buff)
-
-				if err != nil {
-					if err == io.EOF {
-						break
-					}
-
-					return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
-				}
-
-				if n > 0 {
-					fullBody.Write(buff[:n])
-
-					if _, err := respWriter.WriteChunkedBody(buff[:n]); err != nil {
-						return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
-					}
-				}
-
-			}
-
-			if _, err := respWriter.WriteChunkedBodyDone(); err != nil {
-				return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
-			}
-
-			// Compute SHA256 + length
-			hash := sha256.Sum256(fullBody.Bytes())
-			hashHex := fmt.Sprintf("%x", hash[:])
-			length := strconv.Itoa(fullBody.Len())
-
-			// Write trailers
-			trailers := header.NewHeaders()
-			trailers.Add("X-Content-SHA256", hashHex)
-			trailers.Add("X-Content-Length", length)
-
-			if err := respWriter.WriteTrailers(trailers); err != nil {
-				return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
-			}
-
-			return nil
+		if strings.HasPrefix(r.RequestLine.RequestTarget, "/video") {
+			return video(respWriter)
 		}
 
 		var (
@@ -173,4 +110,102 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 	log.Println("Server gracefully stopped")
+}
+
+func proxy(r *request.Request, respWriter *response.Writer) *server.HandlerError {
+	proxyPath := strings.TrimPrefix(r.RequestLine.RequestTarget, "/httpbin")
+	proxyUrl := "https://httpbin.org" + proxyPath
+
+	resp, err := http.Get(proxyUrl)
+
+	if err != nil {
+		return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
+	}
+
+	defer resp.Body.Close()
+
+	headers := response.GetDefaultHeaders(0)
+	headers.Add("Content-Type", resp.Header.Get("Content-Type"))
+	headers.Remove("content-length")
+	headers.Add("Transfer-Encoding", "chunked")
+
+	headers.Add("Trailer", "X-Content-SHA256, X-Content-Length")
+
+	if err := respWriter.WriteStatusLine(response.StatusOk); err != nil {
+		return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
+	}
+
+	if err := respWriter.WriteHeaders(headers); err != nil {
+		return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
+	}
+
+	buff := make([]byte, 1024)
+	var fullBody bytes.Buffer // to calculate hash and length later
+
+	for {
+		n, err := resp.Body.Read(buff)
+
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+
+			return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
+		}
+
+		if n > 0 {
+			fullBody.Write(buff[:n])
+
+			if _, err := respWriter.WriteChunkedBody(buff[:n]); err != nil {
+				return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
+			}
+		}
+
+	}
+
+	if _, err := respWriter.WriteChunkedBodyDone(); err != nil {
+		return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
+	}
+
+	// Compute SHA256 + length
+	hash := sha256.Sum256(fullBody.Bytes())
+	hashHex := fmt.Sprintf("%x", hash[:])
+	length := strconv.Itoa(fullBody.Len())
+
+	// Write trailers
+	trailers := header.NewHeaders()
+	trailers.Add("X-Content-SHA256", hashHex)
+	trailers.Add("X-Content-Length", length)
+
+	if err := respWriter.WriteTrailers(trailers); err != nil {
+		return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
+	}
+
+	return nil
+}
+
+func video(respWriter *response.Writer) *server.HandlerError {
+	data, err := os.ReadFile("./assets/vim.mp4")
+
+	if err != nil {
+		return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
+	}
+
+	headers := header.NewHeaders()
+	headers.Add("Connection", "close")
+	headers.Add("Content-Type", "video/mp4")
+
+	if err := respWriter.WriteStatusLine(response.StatusOk); err != nil {
+		return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
+	}
+
+	if err := respWriter.WriteHeaders(headers); err != nil {
+		return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
+	}
+
+	if _, err := respWriter.WriteBody(data); err != nil {
+		return &server.HandlerError{StatusCode: response.StatusInternalServerError, Message: err.Error()}
+	}
+
+	return nil
 }
